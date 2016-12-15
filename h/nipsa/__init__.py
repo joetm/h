@@ -14,4 +14,4 @@ def includeme(config):
     config.register_service_factory(services.nipsa_factory, name='nipsa')
 
     # Register an additional filter with the API search module
-    config.add_search_filter(search.Filter)
+    config.memex_add_search_filter(search.Filter)
