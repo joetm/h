@@ -92,16 +92,6 @@ class GroupService(object):
         if self.publish:
             self.publish('group-leave', group.pubid, userid)
 
-    def annotation_count(self, pubid):
-        """
-        Return the count of shared annotations for this group.
-        """
-
-        return (
-            self.session.query(Annotation)
-            .filter_by(groupid=pubid, shared=True)
-            .count())
-
 
 def groups_factory(context, request):
     """Return a GroupService instance for the passed context and request."""

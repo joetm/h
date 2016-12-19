@@ -372,28 +372,26 @@ class TestGroupSearchController(object):
         assert isinstance(result, httpexceptions.HTTPSeeOther)
         assert result.location == 'http://example.com/search?q=foo+bar+gar'
 
-    def test_search_passes_the_annotation_count_to_the_template(self,
-                                                                controller,
-                                                                search,
-                                                                group,
-                                                                group_service,
-                                                                pyramid_request):
+    def test_search_passes_the_group_annotation_count_to_the_template(self,
+                                                                      controller,
+                                                                      group,
+                                                                      pyramid_request,
+                                                                      search):
         pyramid_request.authenticated_user = group.members[-1]
-        controller.search()
+        result = controller.search()['stats']
 
-        group_service.annotation_count.assert_called_once_with(group.pubid)
+        assert result['annotation_count'] == 5
 
     def test_search_does_not_pass_annotation_count_to_the_template_when_flag_is_disabled(self,
                                                                                          controller,
-                                                                                         search,
                                                                                          group,
-                                                                                         group_service,
-                                                                                         pyramid_request):
+                                                                                         pyramid_request,
+                                                                                         search):
         pyramid_request.authenticated_user = group.members[-1]
         pyramid_request.feature.flags['total_shared_annotations'] = False
-        controller.search()
+        result = controller.search()['stats']
 
-        assert group_service.annotation_count.called is False
+        assert result['annotation_count'] is None
 
     @pytest.mark.parametrize('q', ['', '   '])
     def test_leave_removes_empty_query_from_url(self,
@@ -594,25 +592,40 @@ class TestUserSearchController(object):
 
         assert username == user.display_name
 
-    def test_search_passes_the_annotation_count_to_the_template(self,
-                                                                controller,
-                                                                search,
-                                                                user,
-                                                                user_service):
-        controller.search()
+    def test_search_passes_the_user_annotation_counts_to_the_template(self,
+                                                                      controller,
+                                                                      pyramid_config,
+                                                                      search,
+                                                                      user):
+        pyramid_config.testing_securitypolicy(user.userid)
 
-        user_service.annotation_count.assert_called_once_with(user.userid)
+        stats = controller.search()['stats']
 
-    def test_search_does_not_pass_the_annotation_count_to_the_template_when_flag_is_disabled(self,
-                                                                                             controller,
-                                                                                             search,
-                                                                                             user,
-                                                                                             user_service,
-                                                                                             pyramid_request):
+        assert stats['annotation_count'] == 6
+
+    def test_search_does_not_pass_the_user_annotation_counts_to_the_template_when_flag_is_disabled(self,
+                                                                                                   controller,
+                                                                                                   pyramid_request,
+                                                                                                   search,
+                                                                                                   user):
         pyramid_request.feature.flags['total_shared_annotations'] = False
-        controller.search()
+        result = controller.search()['stats']
 
-        assert user_service.annotation_count.called == False
+        assert result['annotation_count'] is None
+
+    def test_search_does_not_pass_the_user_annotation_counts_to_the_template_when_user_is_different_from_auth_user(self,
+                                                                                                                   controller,
+                                                                                                                   factories,
+                                                                                                                   pyramid_config,
+                                                                                                                   pyramid_request,
+                                                                                                                   search,
+                                                                                                                   user):
+        pyramid_request.feature.flags['total_shared_annotations'] = True
+        pyramid_config.testing_securitypolicy(factories.User().userid)
+
+        stats = controller.search()['stats']
+
+        assert stats['annotation_count'] == 1
 
     def test_search_passes_the_other_user_details_to_the_template(self,
                                                                   controller,
@@ -886,6 +899,14 @@ class TestGroupAndUserSearchController(object):
         return activity.UserSearchController(user, pyramid_request)
 
 
+class FakeAnnotationStatsService(object):
+    def user_annotation_counts(self, userid):
+        return {'public': 1, 'private': 3, 'group': 2}
+
+    def group_annotation_count(self, pubid):
+        return 5
+
+
 @pytest.fixture
 def group(factories):
     # Create some other groups as well, just to make sure it gets the right
@@ -921,8 +942,9 @@ def routes(pyramid_config):
 
 
 @pytest.fixture
-def search(patch):
+def search(patch, pyramid_config):
     search = patch('h.views.activity.SearchController.search')
+    pyramid_config.register_service(FakeAnnotationStatsService(), name='annotation_stats')
     search.return_value = {
         'search_results': ActivityResults(total=200,
                                           aggregations={},
